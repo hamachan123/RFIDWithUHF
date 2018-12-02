@@ -1,0 +1,248 @@
+public class PGPlugintest extends StandardFeature {
+
+    public static final int RADAR_CODE = 1;
+    private static final String RADAR_INTENT = "eficid.intent.action.RFID_RADAR";
+    private static final String KEY = "00000000";// 秘钥
+    public static final String TAG = "RfidScanner";
+    private RFIDWithUHF mRFID;
+    private Context callbackContext;
+
+    /**
+     * 初始化读卡插件
+     */
+    public void onStart(Context pContext, Bundle pSavedInstanceState, String[] pRuntimeArgs) {
+    }
+
+    /**
+     *
+     * @param pWebview
+     * @param array
+     */
+    public void PluginTestFunction(IWebview pWebview, JSONArray array) {
+        // 原生代码中获取JS层传递的参数，
+        // 参数的获取顺序与JS层传递的顺序一致
+        String CallBackID = array.optString(0);
+        JSONArray newArray = new JSONArray();
+        newArray.put(array.optString(1));
+        newArray.put(array.optString(2));
+        newArray.put(array.optString(3));
+        newArray.put(array.optString(4));
+        int sector = 0;
+        int block = 2;
+        if (array.length() > 0) {
+            JSONObject orderInfoArgs;
+            sector = Integer.parseInt(array.optString(1));
+            block = Integer.parseInt(array.optString(2));
+        }
+        Intent intentScan = new Intent();
+        intentScan.setAction(RADAR_INTENT);
+        String result ="";
+        if("EPC".equals(array.optString(3))){
+            //读取卡片中唯一标识
+            result =readCardEPC();
+        }else{
+            // 读取Tag中Data
+            result = readCard(sector, block);
+        }
+        JSUtil.execCallback(pWebview, CallBackID, result, JSUtil.OK, false);
+    }
+
+    /**
+     *
+     * @param pWebview
+     * @param array
+     */
+    public void PluginTestFunctionArrayArgu(IWebview pWebview, JSONArray array) {
+        String ReturnString = null;
+        String CallBackID = array.optString(0);
+        JSONArray newArray = null;
+        try {
+            newArray = new JSONArray(array.optString(1));
+            String inValue1 = newArray.getString(0);
+            String inValue2 = newArray.getString(1);
+            String inValue3 = newArray.getString(2);
+            String inValue4 = newArray.getString(3);
+            ReturnString = inValue1 + "-" + inValue2 + "-" + inValue3 + "-" + inValue4;
+            int sector = 1;
+            int block = 0;
+            writeCard(inValue4, sector, block);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        JSUtil.execCallback(pWebview, CallBackID, ReturnString, JSUtil.OK, false);
+    }
+
+    public String PluginTestFunctionSyncArrayArgu(IWebview pWebview, JSONArray array) {
+        JSONArray newArray = null;
+        JSONObject retJSONObj = null;
+        try {
+            newArray = array.optJSONArray(0);
+            String inValue1 = newArray.getString(0);
+            String inValue2 = newArray.getString(1);
+            String inValue3 = newArray.getString(2);
+            String inValue4 = newArray.getString(3);
+
+            retJSONObj = new JSONObject();
+            retJSONObj.putOpt("RetArgu1", inValue1);
+            retJSONObj.putOpt("RetArgu2", inValue2);
+            retJSONObj.putOpt("RetArgu3", inValue3);
+            retJSONObj.putOpt("RetArgu4", inValue4);
+        } catch (JSONException e1) {
+            e1.printStackTrace();
+        }
+        return JSUtil.wrapJsVar(retJSONObj);
+    }
+
+    public String PluginTestFunctionSync(IWebview pWebview, JSONArray array) {
+        String inValue1 = array.optString(0);
+        String inValue2 = array.optString(1);
+        String inValue3 = array.optString(2);
+        String inValue4 = array.optString(3);
+        String ReturnValue = inValue1 + "-" + inValue2 + "-" + inValue3 + "-" + inValue4;
+        // 只能返回String类型到JS层。
+        return JSUtil.wrapJsVar(ReturnValue, true);
+    }
+
+    /**
+     * 写卡
+     *
+     * @param strData
+     *            写的内容
+     * @param sector
+     *            扇区
+     * @param block
+     *            块
+     */
+    private void writeCard(String strData, int sector, int block) {
+        try {
+            mRFID = RFIDWithUHF.getInstance();
+        } catch (ConfigurationException e) {
+            e.printStackTrace();
+        }
+        try {
+            if (!mRFID.isPowerOn()) {
+                Toast.makeText(callbackContext, "寻卡失败", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (checkKeyValue(KEY) && vailHexInput(strData)) {
+                try {
+                    if (mRFID.writeData(KEY, BankEnum.USER, sector, block, strData, "")) {
+                        // 关闭UHF模块
+                        mRFID.free();
+                        Toast.makeText(callbackContext, "写卡成功", Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    Toast.makeText(callbackContext, "写卡失败", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                Toast.makeText(callbackContext, "写入数据不符合规范", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e1) {
+            Toast.makeText(callbackContext, "寻卡失败", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * 读取卡片EPC
+     * @return
+     */
+    private String readCardEPC() {
+        JSONObject json = new JSONObject();
+        ResultModel result = new ResultModel();
+        Boolean boolRead=false;
+        try {
+            mRFID = RFIDWithUHF.getInstance();
+            mRFID.setEPCTIDMode(true);
+            boolRead=mRFID.init();
+        } catch (ConfigurationException e) {
+            json = result.ReturnValueErr("初始化失败", "");
+            e.printStackTrace();
+        }
+        if (boolRead==false) {
+            json = result.ReturnValueErr("寻卡失败", "");
+            return json.toString();
+        }
+        String resultValue="";
+        if (checkKeyValue(KEY)) {
+            //String UII2=mRFID.readUidFromBuffer();
+            String UII=mRFID.inventorySingleTag();
+            String TID = mRFID.readData(KEY, BankEnum.TID,0,6,UII);
+            resultValue=TID;//"{UII:"+UII+",TID:"+TID+"}";
+        }
+        // 关闭UHF模块
+        mRFID.free();
+        if (resultValue==null || resultValue.equals("")) {
+            json = result.ReturnValueErr("未找到卡片", "");
+            return json.toString();
+        }else{
+            json = result.ReturnValueSuccess("读卡成功", resultValue);
+            return json.toString();
+        }
+    }
+
+    /**
+     * 读卡
+     *
+     * @throws JSONException
+     */
+    @SuppressWarnings("unused")
+    private String readCard(int ptr, int cnt) {
+        JSONObject json = new JSONObject();
+        ResultModel result = new ResultModel();
+        try {
+            mRFID = RFIDWithUHF.getInstance();
+        } catch (ConfigurationException e) {
+            e.printStackTrace();
+        }
+        SimpleRFIDEntity entity = null;
+        if (!mRFID.isPowerOn()) {
+            json = result.ReturnValueErr("寻卡失败", "");
+            return json.toString();
+        }
+        if (checkKeyValue(KEY)) {
+            // 读取设备卡片
+            entity = mRFID.readData(KEY, BankEnum.USER, ptr, cnt);
+            // 关闭UHF模块
+            mRFID.free();
+            if (entity == null) {
+                json = result.ReturnValueErr("未找到卡片", "");
+                return json.toString();
+            }
+        }
+        json = result.ReturnValueSuccess("读卡成功", entity.getData());
+        return json.toString();
+    }
+
+    /**
+     * 验证十六进制输入是否正确
+     *
+     * @param str
+     * @return
+     */
+    public boolean vailHexInput(String str) {
+        if (str == null || str.length() == 0) {
+            return false;
+        }
+        if (str.length() % 2 == 0) {
+            return StringUtility.isHexNumberRex(str);
+        }
+        return false;
+    }
+
+    /**
+     * 验证秘钥
+     *
+     * @param key
+     * @return
+     */
+    private boolean checkKeyValue(String key) {
+        if (key.length() != 8) {
+            Toast.makeText(callbackContext, "key.length() != 8", Toast.LENGTH_SHORT).show();
+            return false;
+        } else if (!vailHexInput(key)) {
+            Toast.makeText(callbackContext, "!vailHexInput(key)", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        return true;
+    }
+}
